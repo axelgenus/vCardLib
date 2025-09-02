@@ -1,0 +1,57 @@
+name: vCardLib
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Add GitHub Packages Source
+        run: |
+          dotnet nuget add source "https://nuget.pkg.github.com/axelgenus/index.json" \
+            --name github \
+            --username ${{ github.actor }} \
+            --password ${{ secrets.PAT_PACKAGES_MANAGER }} \
+            --store-password-in-clear-text
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Generate Version
+        id: generate_version
+        run: |
+          VERSION=$(date +%y.%m).${{ github.run_number }}
+          if [ "${{ github.ref }}" != "refs/heads/master" ]; then
+            VERSION="${VERSION}-pre"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Pack
+        run: dotnet pack --configuration Release --no-restore -p:Version=${{ env.VERSION }}
+
+      - name: Test
+        run: dotnet test --configuration Release vCardLib.Tests/vCardLib.Tests.csproj
+
+      - name: Publish to GitHub Packages
+        run: |
+          dotnet nuget push **/*.nupkg \
+            --api-key ${{ secrets.PAT_PACKAGES_MANAGER }} \
+            --source "github"
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
